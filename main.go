@@ -2,8 +2,6 @@ package main
 
 import (
 	"fmt"
-	"github.com/huichen/wukong/engine"
-	"github.com/huichen/wukong/types"
 	"github.com/sillydong/readengine/extractor"
 	"github.com/sillydong/readengine/filehandler"
 	"github.com/sirupsen/logrus"
@@ -13,6 +11,10 @@ import (
 	"os"
 	"path"
 	"time"
+	"github.com/yanyiwu/gojieba"
+	"github.com/blevesearch/bleve"
+	_ "github.com/yanyiwu/gojieba/bleve"
+	"strconv"
 )
 
 func main() {
@@ -78,25 +80,29 @@ func main() {
 }
 
 var (
-	e    = engine.Engine{}
 	conf Conf
+	idx bleve.Index
+	jieba *gojieba.Jieba
 )
 
 type Conf struct {
 	Dict      string `yaml:"dict"`
-	StopToken string `yaml:"stoptoken"`
+	Hmm string `yaml:"hmm"`
+	UserDict string `yaml:"userdict"`
+	Idf string `yaml:"idf"`
+	Stop string `yaml:"stop"`
 	Store     string `yaml:"store"`
 }
 
 func init_engine(c *cli.Context) {
 	runtimepath := path.Dir(os.Args[0])
+
 	configpath := c.GlobalString("config")
-	fmt.Println(configpath)
 	if !path.IsAbs(configpath) {
 		configpath = path.Join(runtimepath, configpath)
 	}
+
 	content, err := ioutil.ReadFile(configpath)
-	fmt.Println(string(content))
 	if err != nil {
 		logrus.Fatal(err)
 	}
@@ -105,34 +111,51 @@ func init_engine(c *cli.Context) {
 		logrus.Fatal(err)
 	}
 
-	if conf.Dict == "" {
-		conf.Dict = path.Join(runtimepath, "dict", "dictionary.txt")
-	} else if !path.IsAbs(conf.Dict) {
-		conf.Dict = path.Join(runtimepath, conf.Dict)
-	}
-	if conf.StopToken == "" {
-		conf.Dict = path.Join(runtimepath, "dict", "stop_tokens.txt")
-	} else if !path.IsAbs(conf.StopToken) {
-		conf.StopToken = path.Join(runtimepath, conf.StopToken)
-	}
 	if conf.Store == "" {
 		conf.Store = path.Join(runtimepath, "store")
 	} else if !path.IsAbs(conf.Store) {
 		conf.Store = path.Join(runtimepath, conf.Store)
 	}
 
-	e.Init(types.EngineInitOptions{
-		StopTokenFile:           conf.StopToken,
-		SegmenterDictionaries:   conf.Dict,
-		UsePersistentStorage:    true,
-		PersistentStorageShards: 8,
-		PersistentStorageFolder: conf.Store,
-	})
+	jieba = gojieba.NewJieba(conf.Dict,conf.Hmm,conf.UserDict,conf.Idf,conf.Stop)
+	idx ,err = bleve.Open(conf.Store)
+	if err == bleve.ErrorIndexPathDoesNotExist {
+		mapping := bleve.NewIndexMapping()
+		if err := mapping.AddCustomTokenizer("gojieba",map[string]interface{}{
+			"dictpath":     conf.Dict,
+			"hmmpath":      conf.Hmm,
+			"userdictpath": conf.UserDict,
+			"idf":          conf.Idf,
+			"stop_words":   conf.Stop,
+			"type":         "gojieba",
+		});err != nil {
+			logrus.Fatal(err)
+		}
+		if err := mapping.AddCustomAnalyzer("gojieba",map[string]interface{}{
+			"type":      "gojieba",
+			"tokenizer": "gojieba",
+		}); err != nil {
+			panic(err)
+		}
+		mapping.DefaultAnalyzer="gojieba"
+		docmapping := bleve.NewDocumentMapping()
+		fieldidmapping := bleve.NewNumericFieldMapping()
+		docmapping.AddFieldMappingsAt("Id",fieldidmapping)
+		fieldtitlemapping := bleve.NewTextFieldMapping()
+		docmapping.AddFieldMappingsAt("Title",fieldtitlemapping)
+		fieldcontentmapping := bleve.NewTextFieldMapping()
+		docmapping.AddFieldMappingsAt("Content",fieldcontentmapping)
+		idx,err = bleve.New(conf.Store,mapping)
+		if err != nil {
+			logrus.Fatal(err)
+		}
+	}
 }
 
 func close_engine() {
 	logrus.Info("engine close")
-	e.Close()
+	idx.Close()
+	jieba.Free()
 }
 
 func index_url(c *cli.Context) error {
@@ -149,11 +172,18 @@ func index_url(c *cli.Context) error {
 	if err != nil {
 		logrus.Error(err)
 	} else {
-		e.IndexDocument(uint64(time.Now().Unix()), types.DocumentIndexData{
-			Content: title + content,
-		}, true)
-		logrus.Info("indexed %v", title)
-		logrus.Info("index size: %v", e.NumDocumentsIndexed())
+		doc := &Doc{
+			Id:strconv.FormatInt(time.Now().Unix(),10),
+			Title:title,
+			Content:content,
+		}
+		if err := idx.Index(doc.Id,doc);err !=nil{
+			logrus.Error(err)
+		}else{
+			logrus.Infof("indexed %v", title)
+			c ,_ := idx.DocCount()
+			logrus.Infof("index size: %v", c)
+		}
 	}
 
 	return nil
@@ -188,17 +218,20 @@ func search(c *cli.Context) error {
 
 	keyword := c.Args().First()
 
-	resp := e.Search(types.SearchRequest{
-		Text: keyword,
-	})
-	logrus.Info(e.NumDocumentsIndexed())
-	if resp.NumDocs == 0 {
-		logrus.Info("未找到结果")
-	} else {
+	req := bleve.NewSearchRequest(bleve.NewQueryStringQuery("Title:"+keyword+" Content:"+keyword))
+	req.Highlight = bleve.NewHighlight()
 
-		logrus.Infof("找到 %v 条结果", resp.NumDocs)
-		for _, doc := range resp.Docs {
-			logrus.Infof("[%v]", doc.DocId)
+	res,err := idx.Search(req)
+	if err != nil {
+		logrus.Error(err)
+	}else{
+		if res.Total>0{
+			logrus.Infof("找到 %v 条结果", res.Total)
+			for _, doc := range res.Hits {
+				logrus.Infof("[%v]", doc.ID)
+			}
+		}else{
+			logrus.Info("未找到结果")
 		}
 	}
 	return nil
@@ -208,4 +241,10 @@ func web(c *cli.Context) error {
 	init_engine(c)
 	fmt.Println("web")
 	return nil
+}
+
+type Doc struct{
+	Id string
+	Title string
+	Content string
 }

@@ -1,3 +1,6 @@
-dict: dict/dictionary.txt
-stoptoken: dict/stop_tokens.txt
+dict: dict_jieba/jieba.dict.utf8
+hmm: dict_jieba/hmm_model.utf8
+userdict: dict_jieba/user.dict.utf8
+idf: dict_jieba/idf.utf8
+stop: dict_jieba/stop_words.utf8
 store: store
