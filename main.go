@@ -174,6 +174,7 @@ func index_url(c *cli.Context) error {
 	} else {
 		doc := &Doc{
 			Id:strconv.FormatInt(time.Now().Unix(),10),
+			Src:url,
 			Title:title,
 			Content:content,
 		}
@@ -219,6 +220,7 @@ func search(c *cli.Context) error {
 	keyword := c.Args().First()
 
 	req := bleve.NewSearchRequest(bleve.NewQueryStringQuery("Title:"+keyword+" Content:"+keyword))
+	req.Fields=[]string{"Id","Url","Title"}
 	req.Highlight = bleve.NewHighlight()
 
 	res,err := idx.Search(req)
@@ -228,7 +230,7 @@ func search(c *cli.Context) error {
 		if res.Total>0{
 			logrus.Infof("找到 %v 条结果", res.Total)
 			for _, doc := range res.Hits {
-				logrus.Infof("[%v]", doc.ID)
+				logrus.Infof("[%v]title:%v\n\tsrc%v",doc.ID,doc.Fields["Title"],doc.Fields["Url"])
 			}
 		}else{
 			logrus.Info("未找到结果")
@@ -245,6 +247,7 @@ func web(c *cli.Context) error {
 
 type Doc struct{
 	Id string
+	Src string
 	Title string
 	Content string
 }
