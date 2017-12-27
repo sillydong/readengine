@@ -1,0 +1,3 @@
+dict: dict/dictionary.txt
+stoptoken: dict/stop_tokens.txt
+store: store
