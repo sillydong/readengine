@@ -1,9 +1,7 @@
 package main
 
 import (
-	"fmt"
 	"github.com/sillydong/readengine/extractor"
-	"github.com/sillydong/readengine/filehandler"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 	"gopkg.in/yaml.v2"
@@ -15,6 +13,9 @@ import (
 	"github.com/blevesearch/bleve"
 	_ "github.com/yanyiwu/gojieba/bleve"
 	"strconv"
+	"github.com/sillydong/goczd/gotime"
+	"github.com/boltdb/bolt"
+	"encoding/json"
 )
 
 func main() {
@@ -37,20 +38,6 @@ func main() {
 			ArgsUsage: "absolute url",
 		},
 		{
-			Name:    "file",
-			Aliases: []string{"f"},
-			Usage:   "read content from file and index the whole file content",
-			Flags: []cli.Flag{
-				cli.StringFlag{
-					Name:  "type,t",
-					Usage: "manully set file type",
-					Value: "",
-				},
-			},
-			Action:    index_file,
-			ArgsUsage: "filepath",
-		},
-		{
 			Name:      "search",
 			Aliases:   []string{"s"},
 			Usage:     "search in read history",
@@ -58,40 +45,29 @@ func main() {
 			ArgsUsage: "keyword",
 		},
 		{
-			Name:    "web",
-			Aliases: []string{"w"},
-			Usage:   "run web server for user to manage data on web",
-			Flags: []cli.Flag{
-				cli.StringFlag{
-					Name:  "host,h",
-					Usage: "bind to host",
-					Value: "127.0.0.1",
-				},
-				cli.IntFlag{
-					Name:  "port,p",
-					Usage: "bind to port",
-					Value: 8090,
-				},
-			},
-			Action: web,
+			Name:    "rebuild",
+			Aliases: []string{"r"},
+			Usage:   "rebuild index from database",
+			Action:  rebuild,
 		},
 	}
 	app.Run(os.Args)
 }
 
 var (
-	conf Conf
-	idx bleve.Index
+	conf  Conf
+	idx   bleve.Index
 	jieba *gojieba.Jieba
+	db    *bolt.DB
 )
 
 type Conf struct {
-	Dict      string `yaml:"dict"`
-	Hmm string `yaml:"hmm"`
+	Dict     string `yaml:"dict"`
+	Hmm      string `yaml:"hmm"`
 	UserDict string `yaml:"userdict"`
-	Idf string `yaml:"idf"`
-	Stop string `yaml:"stop"`
-	Store     string `yaml:"store"`
+	Idf      string `yaml:"idf"`
+	Stop     string `yaml:"stop"`
+	Store    string `yaml:"store"`
 }
 
 func init_engine(c *cli.Context) {
@@ -117,38 +93,57 @@ func init_engine(c *cli.Context) {
 		conf.Store = path.Join(runtimepath, conf.Store)
 	}
 
-	jieba = gojieba.NewJieba(conf.Dict,conf.Hmm,conf.UserDict,conf.Idf,conf.Stop)
-	idx ,err = bleve.Open(conf.Store)
+	//init index
+	jieba = gojieba.NewJieba(conf.Dict, conf.Hmm, conf.UserDict, conf.Idf, conf.Stop)
+	indexpath := path.Join(conf.Store, "index")
+	idx, err = bleve.Open(indexpath)
 	if err == bleve.ErrorIndexPathDoesNotExist {
 		mapping := bleve.NewIndexMapping()
-		if err := mapping.AddCustomTokenizer("gojieba",map[string]interface{}{
+		if err := mapping.AddCustomTokenizer("gojieba", map[string]interface{}{
 			"dictpath":     conf.Dict,
 			"hmmpath":      conf.Hmm,
 			"userdictpath": conf.UserDict,
 			"idf":          conf.Idf,
 			"stop_words":   conf.Stop,
 			"type":         "gojieba",
-		});err != nil {
+		}); err != nil {
 			logrus.Fatal(err)
 		}
-		if err := mapping.AddCustomAnalyzer("gojieba",map[string]interface{}{
+		if err := mapping.AddCustomAnalyzer("gojieba", map[string]interface{}{
 			"type":      "gojieba",
 			"tokenizer": "gojieba",
 		}); err != nil {
 			panic(err)
 		}
-		mapping.DefaultAnalyzer="gojieba"
+		mapping.DefaultAnalyzer = "gojieba"
 		docmapping := bleve.NewDocumentMapping()
 		fieldidmapping := bleve.NewNumericFieldMapping()
-		docmapping.AddFieldMappingsAt("Id",fieldidmapping)
+		docmapping.AddFieldMappingsAt("Id", fieldidmapping)
 		fieldtitlemapping := bleve.NewTextFieldMapping()
-		docmapping.AddFieldMappingsAt("Title",fieldtitlemapping)
+		docmapping.AddFieldMappingsAt("Title", fieldtitlemapping)
 		fieldcontentmapping := bleve.NewTextFieldMapping()
-		docmapping.AddFieldMappingsAt("Content",fieldcontentmapping)
-		idx,err = bleve.New(conf.Store,mapping)
+		docmapping.AddFieldMappingsAt("Content", fieldcontentmapping)
+		idx, err = bleve.New(indexpath, mapping)
 		if err != nil {
 			logrus.Fatal(err)
 		}
+	} else if err != nil {
+		logrus.Fatal(err)
+	}
+
+	//init db
+	datapath := path.Join(conf.Store, "data.db")
+	db, err = bolt.Open(datapath, 0600, nil)
+	if err != nil {
+		logrus.Fatal(err)
+	}
+	err = db.Update(func(tx *bolt.Tx) error {
+		_,err := tx.CreateBucketIfNotExists([]byte("readengine"))
+		return err
+	})
+	if err != nil {
+		db.Close()
+		logrus.Fatal(err)
 	}
 }
 
@@ -156,6 +151,7 @@ func close_engine() {
 	logrus.Info("engine close")
 	idx.Close()
 	jieba.Free()
+	db.Close()
 }
 
 func index_url(c *cli.Context) error {
@@ -173,40 +169,30 @@ func index_url(c *cli.Context) error {
 		logrus.Error(err)
 	} else {
 		doc := &Doc{
-			Id:strconv.FormatInt(time.Now().Unix(),10),
-			Src:url,
-			Title:title,
-			Content:content,
+			Id:      strconv.FormatInt(time.Now().Unix(), 10),
+			Src:     url,
+			Title:   title,
+			Content: content,
 		}
-		if err := idx.Index(doc.Id,doc);err !=nil{
+		//save to db
+		db.Update(func(tx *bolt.Tx) error {
+			docbytes, err := json.Marshal(doc)
+			if err != nil {
+				return err
+			}
+			return tx.Bucket([]byte("readengine")).Put([]byte(doc.Id), docbytes)
+		})
+
+		//save to index
+		if err := idx.Index(doc.Id, doc); err != nil {
 			logrus.Error(err)
-		}else{
+		} else {
 			logrus.Infof("indexed %v", title)
-			c ,_ := idx.DocCount()
+			c, _ := idx.DocCount()
 			logrus.Infof("index size: %v", c)
 		}
 	}
 
-	return nil
-}
-
-func index_file(c *cli.Context) error {
-	if c.NArg() == 0 {
-		return cli.ShowCommandHelp(c, "file")
-	}
-	init_engine(c)
-	defer close_engine()
-
-	filepath := c.Args().First()
-	logrus.Infof("indexing %v", filepath)
-
-	title,content, err := filehandler.Parse(filepath)
-	if err != nil {
-		logrus.Error(err)
-	}
-
-	fmt.Println(title)
-	fmt.Println(content)
 	return nil
 }
 
@@ -219,35 +205,57 @@ func search(c *cli.Context) error {
 
 	keyword := c.Args().First()
 
-	req := bleve.NewSearchRequest(bleve.NewQueryStringQuery("Title:"+keyword+" Content:"+keyword))
-	req.Fields=[]string{"Id","Url","Title"}
+	req := bleve.NewSearchRequest(bleve.NewQueryStringQuery("Title:" + keyword + " Content:" + keyword))
+	req.Fields = []string{"Id", "Src", "Title"}
 	req.Highlight = bleve.NewHighlight()
 
-	res,err := idx.Search(req)
+	res, err := idx.Search(req)
 	if err != nil {
 		logrus.Error(err)
-	}else{
-		if res.Total>0{
+	} else {
+		if res.Total > 0 {
 			logrus.Infof("找到 %v 条结果", res.Total)
 			for _, doc := range res.Hits {
-				logrus.Infof("[%v]title:%v\n\tsrc%v",doc.ID,doc.Fields["Title"],doc.Fields["Url"])
+				addtime, _ := strconv.Atoi(doc.ID)
+				logrus.Infof("[%v]title: %v\n\t\tsrc: %v", gotime.TimeToStr(int64(addtime), gotime.FORMAT_YYYY_MM_DD_HH_II_SS), doc.Fields["Title"], doc.Fields["Src"])
 			}
-		}else{
+		} else {
 			logrus.Info("未找到结果")
 		}
 	}
 	return nil
 }
 
-func web(c *cli.Context) error {
+func rebuild(c *cli.Context) error {
 	init_engine(c)
-	fmt.Println("web")
+	defer close_engine()
+
+	db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("readengine"))
+		c := b.Cursor()
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			doc := Doc{}
+			if err := json.Unmarshal(v, &doc); err != nil {
+				logrus.Error(err)
+			} else {
+				logrus.Infof("indexing %v", doc.Src)
+				if err := idx.Index(doc.Id, doc); err != nil {
+					logrus.Error(err)
+				}
+			}
+		}
+		return nil
+	})
+
+	count, _ := idx.DocCount()
+	logrus.Infof("rebuild index finished, index size: %v", count)
+
 	return nil
 }
 
-type Doc struct{
-	Id string
-	Src string
-	Title string
+type Doc struct {
+	Id      string
+	Src     string
+	Title   string
 	Content string
 }
