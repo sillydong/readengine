@@ -17,7 +17,7 @@ ReadEngine need `CGO_ENABLE=1` because it used the `gojieba` library to parse Ch
 
 - Index
 	```
-	readengine index_url "https://geeks.uniplaces.com/building-a-worker-pool-in-golang-1e6c0fdfd78c"
+	readengine url "https://geeks.uniplaces.com/building-a-worker-pool-in-golang-1e6c0fdfd78c"
 	```
 - Search
 	```
