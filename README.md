@@ -14,6 +14,7 @@ ReadEngine need `CGO_ENABLE=1` because it used the `gojieba` library to parse Ch
 - `make clean` will clean the bin in the code path
 
 ## How To Use
+
 - Index
 	```
 	readengine index_url "https://geeks.uniplaces.com/building-a-worker-pool-in-golang-1e6c0fdfd78c"
@@ -22,3 +23,14 @@ ReadEngine need `CGO_ENABLE=1` because it used the `gojieba` library to parse Ch
 	```
 	readengine search "go"
 	```
+- Rebuild
+	```
+	readengine rebuild
+	```
+
+### TODO
+
+- maybe index file contents?
+- maybe a web page for search and read?
+- maybe packup webpage for later read to avoid the source page be deleted?
+- maybe a better search engine?
