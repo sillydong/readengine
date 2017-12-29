@@ -1,21 +1,21 @@
 package main
 
 import (
+	"encoding/json"
+	"github.com/blevesearch/bleve"
+	"github.com/boltdb/bolt"
+	"github.com/sillydong/goczd/gotime"
 	"github.com/sillydong/readengine/extractor"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
+	"github.com/yanyiwu/gojieba"
+	_ "github.com/yanyiwu/gojieba/bleve"
 	"gopkg.in/yaml.v2"
 	"io/ioutil"
 	"os"
 	"path"
-	"time"
-	"github.com/yanyiwu/gojieba"
-	"github.com/blevesearch/bleve"
-	_ "github.com/yanyiwu/gojieba/bleve"
 	"strconv"
-	"github.com/sillydong/goczd/gotime"
-	"github.com/boltdb/bolt"
-	"encoding/json"
+	"time"
 )
 
 func main() {
@@ -43,6 +43,12 @@ func main() {
 			Usage:     "search in read history",
 			Action:    search,
 			ArgsUsage: "keyword",
+		},
+		{
+			Name:    "history",
+			Aliases: []string{"hi"},
+			Usage:   "show all indexed urls",
+			Action:  history,
 		},
 		{
 			Name:    "rebuild",
@@ -138,7 +144,7 @@ func init_engine(c *cli.Context) {
 		logrus.Fatal(err)
 	}
 	err = db.Update(func(tx *bolt.Tx) error {
-		_,err := tx.CreateBucketIfNotExists([]byte("readengine"))
+		_, err := tx.CreateBucketIfNotExists([]byte("readengine"))
 		return err
 	})
 	if err != nil {
@@ -249,6 +255,31 @@ func rebuild(c *cli.Context) error {
 
 	count, _ := idx.DocCount()
 	logrus.Infof("rebuild index finished, index size: %v", count)
+
+	return nil
+}
+
+func history(c *cli.Context) error {
+	init_engine(c)
+	defer close_engine()
+
+	db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("readengine"))
+		c := b.Cursor()
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			doc := Doc{}
+			if err := json.Unmarshal(v, &doc); err != nil {
+				logrus.Error(err)
+			} else {
+				addtime, _ := strconv.Atoi(doc.Id)
+				logrus.Infof("[%v]title: %v\n\t\tsrc: %v", gotime.TimeToStr(int64(addtime), gotime.FORMAT_YYYY_MM_DD_HH_II_SS), doc.Title, doc.Src)
+			}
+		}
+		return nil
+	})
+
+	count, _ := idx.DocCount()
+	logrus.Infof("index size: %v", count)
 
 	return nil
 }

@@ -27,6 +27,10 @@ ReadEngine need `CGO_ENABLE=1` because it used the `gojieba` library to parse Ch
 	```
 	readengine rebuild
 	```
+- History
+	```
+	readengine history
+	```
 
 ### TODO
 
