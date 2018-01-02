@@ -11,6 +11,8 @@ build:
 
 install:
 	CGO_ENABLED=1 GOOS=$(GOOS) GOARCH=$(GOARCH) $(GOINSTALL) -v ./
+
+conf:
 	cp -R dict_jieba $(GOPATH)/bin
 	cp -R config.yaml $(GOPATH)/bin
 

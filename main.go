@@ -13,7 +13,9 @@ import (
 	"gopkg.in/yaml.v2"
 	"io/ioutil"
 	"os"
+	"os/exec"
 	"path"
+	"path/filepath"
 	"strconv"
 	"time"
 )
@@ -77,11 +79,12 @@ type Conf struct {
 }
 
 func init_engine(c *cli.Context) {
-	runtimepath := path.Dir(os.Args[0])
+	binpath, _ := exec.LookPath(os.Args[0])
+	binpath, _ = filepath.Abs(filepath.Dir(binpath))
 
 	configpath := c.GlobalString("config")
 	if !path.IsAbs(configpath) {
-		configpath = path.Join(runtimepath, configpath)
+		configpath = path.Join(binpath, configpath)
 	}
 
 	content, err := ioutil.ReadFile(configpath)
@@ -93,10 +96,30 @@ func init_engine(c *cli.Context) {
 		logrus.Fatal(err)
 	}
 
+	if conf.Dict == "" || conf.Hmm == "" || conf.UserDict == "" || conf.Idf == "" || conf.Stop == "" {
+		logrus.Fatal("missing configuration for segment")
+	}
+
+	if !path.IsAbs(conf.Dict) {
+		conf.Dict = path.Join(binpath, conf.Dict)
+	}
+	if !path.IsAbs(conf.Hmm) {
+		conf.Hmm = path.Join(binpath, conf.Hmm)
+	}
+	if !path.IsAbs(conf.UserDict) {
+		conf.UserDict = path.Join(binpath, conf.UserDict)
+	}
+	if !path.IsAbs(conf.Idf) {
+		conf.Idf = path.Join(binpath, conf.Idf)
+	}
+	if !path.IsAbs(conf.Stop) {
+		conf.Stop = path.Join(binpath, conf.Stop)
+	}
+
 	if conf.Store == "" {
-		conf.Store = path.Join(runtimepath, "store")
+		conf.Store = path.Join(binpath, "store")
 	} else if !path.IsAbs(conf.Store) {
-		conf.Store = path.Join(runtimepath, conf.Store)
+		conf.Store = path.Join(binpath, conf.Store)
 	}
 
 	//init index
