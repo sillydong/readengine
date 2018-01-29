@@ -660,7 +660,7 @@ func images(doc *goquery.Document, reqURL string, opt *Option) []Image {
 	ch := make(chan *Image)
 	imgs := []Image{}
 	loopCnt := uint(0)
-	fi := fastimage.DefaultFastImage(opt.ImageRequestTimeout)
+	fi := fastimage.NewFastImage(opt.ImageRequestTimeout, nil)
 	doc.Find("img").EachWithBreak(func(i int, s *goquery.Selection) bool {
 		if loopCnt >= opt.CheckImageLoopCount {
 			return false

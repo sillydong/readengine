@@ -18,3 +18,6 @@ conf:
 
 clean:
 	rm -f $(BINNAME)
+
+fmt:
+	go fmt ./

@@ -2,6 +2,14 @@ package main
 
 import (
 	"encoding/json"
+	"io/ioutil"
+	"os"
+	"os/exec"
+	"path"
+	"path/filepath"
+	"strconv"
+	"time"
+
 	"github.com/blevesearch/bleve"
 	"github.com/boltdb/bolt"
 	"github.com/sillydong/goczd/gotime"
@@ -11,13 +19,6 @@ import (
 	"github.com/yanyiwu/gojieba"
 	_ "github.com/yanyiwu/gojieba/bleve"
 	"gopkg.in/yaml.v2"
-	"io/ioutil"
-	"os"
-	"os/exec"
-	"path"
-	"path/filepath"
-	"strconv"
-	"time"
 )
 
 func main() {

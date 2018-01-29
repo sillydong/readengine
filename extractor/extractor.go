@@ -2,7 +2,6 @@ package extractor
 
 import (
 	"bytes"
-	"crypto/tls"
 	"errors"
 	"io/ioutil"
 	"net/http"
@@ -13,7 +12,6 @@ import (
 	"golang.org/x/text/encoding"
 	"golang.org/x/text/encoding/simplifiedchinese"
 	"golang.org/x/text/transform"
-	"time"
 	"compress/gzip"
 	"compress/flate"
 	"io"
@@ -27,14 +25,7 @@ var (
 )
 
 func init() {
-	client = &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: false,
-			},
-		},
-		Timeout: 30 * time.Second,
-	}
+	client = http.DefaultClient
 	header = http.Header{}
 	header.Set("User-Agent", "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/54.0.2840.71 Safari/537.36")
 	header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
