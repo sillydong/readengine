@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"os/user"
@@ -45,6 +46,13 @@ func main() {
 			Aliases:   []string{"d"},
 			Usage:     "delete content from index by id",
 			Action:    del_id,
+			ArgsUsage: "doc id",
+		},
+		{
+			Name:      "read",
+			Aliases:   []string{"r"},
+			Usage:     "read content from index by id",
+			Action:    read_id,
 			ArgsUsage: "doc id",
 		},
 		{
@@ -246,6 +254,34 @@ func del_id(c *cli.Context) error {
 	if err := idx.Delete(id); err != nil {
 		logrus.Error(err)
 		return err
+	}
+
+	return nil
+}
+
+func read_id(c *cli.Context) error {
+	if c.NArg() == 0 {
+		return cli.ShowCommandHelp(c, "id")
+	}
+	init_engine(c)
+	defer close_engine()
+
+	id := c.Args().First()
+	logrus.Infof("reading index by id %v", id)
+
+	doc, err := idx.Document(id)
+	if err != nil {
+		logrus.Error(err)
+		return err
+	}
+
+	if doc == nil {
+		logrus.Error("未找到数据")
+		return nil
+	}
+
+	for _, field := range doc.Fields {
+		fmt.Printf("%s: %s", field.Name(), string(field.Value()))
 	}
 
 	return nil
