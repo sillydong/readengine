@@ -204,7 +204,7 @@
     ".",
     "bleve"
   ]
-  revision = "6e14c5c21cec8e7b26f319f3bcc3dddffacc703a"
+  revision = "6a24846202b27f47819bf5f7ab21c8629a9e1f4a"
   version = "v1.0.0"
 
 [[projects]]

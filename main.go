@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"io/ioutil"
 	"os"
-	"os/exec"
+	"os/user"
 	"path"
 	"path/filepath"
 	"strconv"
@@ -39,6 +39,13 @@ func main() {
 			Usage:     "read content from url and index the main content",
 			Action:    index_url,
 			ArgsUsage: "absolute url",
+		},
+		{
+			Name:      "del",
+			Aliases:   []string{"d"},
+			Usage:     "delete content from index by id",
+			Action:    del_id,
+			ArgsUsage: "doc id",
 		},
 		{
 			Name:      "search",
@@ -80,15 +87,15 @@ type Conf struct {
 }
 
 func init_engine(c *cli.Context) {
-	binpath, _ := exec.LookPath(os.Args[0])
-	binpath, _ = filepath.Abs(filepath.Dir(binpath))
-
-	configpath := c.GlobalString("config")
-	if !path.IsAbs(configpath) {
-		configpath = path.Join(binpath, configpath)
+	user, err := user.Current()
+	if err != nil {
+		logrus.Fatal(err)
 	}
 
-	content, err := ioutil.ReadFile(configpath)
+	configdir := filepath.Join(user.HomeDir, ".readengine")
+	configfile := filepath.Join(configdir, "config.yaml")
+
+	content, err := ioutil.ReadFile(configfile)
 	if err != nil {
 		logrus.Fatal(err)
 	}
@@ -102,25 +109,25 @@ func init_engine(c *cli.Context) {
 	}
 
 	if !path.IsAbs(conf.Dict) {
-		conf.Dict = path.Join(binpath, conf.Dict)
+		conf.Dict = path.Join(configdir, conf.Dict)
 	}
 	if !path.IsAbs(conf.Hmm) {
-		conf.Hmm = path.Join(binpath, conf.Hmm)
+		conf.Hmm = path.Join(configdir, conf.Hmm)
 	}
 	if !path.IsAbs(conf.UserDict) {
-		conf.UserDict = path.Join(binpath, conf.UserDict)
+		conf.UserDict = path.Join(configdir, conf.UserDict)
 	}
 	if !path.IsAbs(conf.Idf) {
-		conf.Idf = path.Join(binpath, conf.Idf)
+		conf.Idf = path.Join(configdir, conf.Idf)
 	}
 	if !path.IsAbs(conf.Stop) {
-		conf.Stop = path.Join(binpath, conf.Stop)
+		conf.Stop = path.Join(configdir, conf.Stop)
 	}
 
 	if conf.Store == "" {
-		conf.Store = path.Join(binpath, "store")
+		conf.Store = path.Join(configdir, "store")
 	} else if !path.IsAbs(conf.Store) {
-		conf.Store = path.Join(binpath, conf.Store)
+		conf.Store = path.Join(configdir, conf.Store)
 	}
 
 	//init index
@@ -226,6 +233,24 @@ func index_url(c *cli.Context) error {
 	return nil
 }
 
+func del_id(c *cli.Context) error {
+	if c.NArg() == 0 {
+		return cli.ShowCommandHelp(c, "id")
+	}
+	init_engine(c)
+	defer close_engine()
+
+	id := c.Args().First()
+	logrus.Infof("deleting index by id %v", id)
+
+	if err := idx.Delete(id); err != nil {
+		logrus.Error(err)
+		return err
+	}
+
+	return nil
+}
+
 func search(c *cli.Context) error {
 	if c.NArg() == 0 {
 		return cli.ShowCommandHelp(c, "search")
@@ -247,7 +272,7 @@ func search(c *cli.Context) error {
 			logrus.Infof("找到 %v 条结果", res.Total)
 			for _, doc := range res.Hits {
 				addtime, _ := strconv.Atoi(doc.ID)
-				logrus.Infof("[%v]title: %v\n\t\tsrc: %v", gotime.TimeToStr(int64(addtime), gotime.FORMAT_YYYY_MM_DD_HH_II_SS), doc.Fields["Title"], doc.Fields["Src"])
+				logrus.Infof("[%s][%v]title: %v\n\t\tsrc: %v", doc.ID, gotime.TimeToStr(int64(addtime), gotime.FORMAT_YYYY_MM_DD_HH_II_SS), doc.Fields["Title"], doc.Fields["Src"])
 			}
 		} else {
 			logrus.Info("未找到结果")
